@@ -1,9 +1,23 @@
+
+
+    const corrected =
+      String(
+        (data.output || [])
+          .filter(it => it.type === "message")
+          .flatMap(it => it.content || [])
+          .filter(c => c.type === "output_text")
+          .map(c => c.text)
+          .join("")
+      ).trim();
+
+
 <!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>手順2 AmiVoice 接続</title>
+<title>AmiVoice リアルタイム文字起こし＋校正</title>
+
 <style>
   :root{
     --ink:#e8e6e1;
@@ -13,292 +27,1462 @@
     --line:#2a333c;
     --live:#4ad4a0;
     --interim:#8a929c;
+    --corr:#8db4ff;
     --err:#e8695f;
   }
+
   *{box-sizing:border-box;margin:0;padding:0}
-  html,body{background:var(--bg);color:var(--ink)}
+
+  html,body{
+    background:var(--bg);
+    color:var(--ink);
+  }
+
   body{
     font:400 15px/1.6 ui-monospace,"SF Mono",Menlo,monospace;
     padding:20px 16px 48px;
     -webkit-text-size-adjust:100%;
   }
-  h1{font-size:13px;letter-spacing:.18em;text-transform:uppercase;
-     color:var(--dim);font-weight:500;margin-bottom:18px}
-  h2{font-size:11px;letter-spacing:.16em;text-transform:uppercase;
-     color:var(--dim);font-weight:500;margin:24px 0 8px}
+
+  h1{
+    font-size:13px;
+    letter-spacing:.18em;
+    text-transform:uppercase;
+    color:var(--dim);
+    font-weight:500;
+    margin-bottom:18px;
+  }
+
+  h2{
+    font-size:11px;
+    letter-spacing:.16em;
+    text-transform:uppercase;
+    color:var(--dim);
+    font-weight:500;
+    margin:24px 0 8px;
+  }
 
   input{
-    width:100%;padding:14px;margin-bottom:10px;
-    background:var(--panel);color:var(--ink);
-    border:1px solid var(--line);border-radius:2px;
+    width:100%;
+    padding:14px;
+    margin-bottom:10px;
+    background:var(--panel);
+    color:var(--ink);
+    border:1px solid var(--line);
+    border-radius:2px;
     font:400 15px/1 ui-monospace,Menlo,monospace;
   }
-  input[name=username]{display:none}
 
-  .row{display:flex;gap:10px;margin-bottom:18px}
+  input[name=username]{
+    display:none;
+  }
+
+  .row{
+    display:flex;
+    gap:10px;
+    margin-bottom:18px;
+  }
+
   button{
-    flex:1;padding:18px;
-    background:var(--panel);color:var(--ink);
-    border:1px solid var(--line);border-radius:2px;
-    font:500 16px/1 ui-monospace,Menlo,monospace;letter-spacing:.06em;
+    flex:1;
+    padding:18px;
+    background:var(--panel);
+    color:var(--ink);
+    border:1px solid var(--line);
+    border-radius:2px;
+    font:500 16px/1 ui-monospace,Menlo,monospace;
+    letter-spacing:.06em;
     -webkit-tap-highlight-color:transparent;
   }
-  button:active{background:#232b33}
-  button:disabled{opacity:.3}
 
-  .meter{height:8px;background:var(--panel);border:1px solid var(--line);
-         border-radius:2px;overflow:hidden;margin-bottom:18px}
-  #bar{height:100%;width:0%;background:var(--live);transition:width 60ms linear}
+  button:active{
+    background:#232b33;
+  }
+
+  button:disabled{
+    opacity:.3;
+  }
+
+  .meter{
+    height:8px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:2px;
+    overflow:hidden;
+    margin-bottom:18px;
+  }
+
+  #bar{
+    height:100%;
+    width:0%;
+    background:var(--live);
+    transition:width 60ms linear;
+  }
 
   #text{
-    background:var(--panel);border:1px solid var(--line);border-radius:2px;
-    padding:14px;min-height:180px;font-size:17px;line-height:1.85;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:2px;
+    padding:14px;
+    min-height:180px;
+    font-size:17px;
+    line-height:1.85;
   }
-  #text p{margin-bottom:6px}
-  #interim{color:var(--interim)}
 
-  dl{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;margin:16px 0}
-  dt{color:var(--dim);font-size:12px}
-  dd{text-align:right;font-size:12px;font-variant-numeric:tabular-nums}
+  #text p{
+    margin-bottom:6px;
+  }
+
+  #interim{
+    color:var(--interim);
+  }
+
+  /* 校正中 */
+  #text p.correcting{
+    opacity:.65;
+  }
+
+  /* 校正済み */
+  #text p.corrected{
+    color:var(--ink);
+  }
+
+  dl{
+    display:grid;
+    grid-template-columns:auto 1fr;
+    gap:4px 16px;
+    margin:16px 0;
+  }
+
+  dt{
+    color:var(--dim);
+    font-size:12px;
+  }
+
+  dd{
+    text-align:right;
+    font-size:12px;
+    font-variant-numeric:tabular-nums;
+  }
 
   #log{
-    background:var(--panel);border:1px solid var(--line);border-radius:2px;
-    padding:12px;font-size:11px;line-height:1.7;
-    white-space:pre-wrap;word-break:break-all;
-    max-height:220px;overflow-y:auto;color:var(--dim);
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:2px;
+    padding:12px;
+    font-size:11px;
+    line-height:1.7;
+    white-space:pre-wrap;
+    word-break:break-all;
+    max-height:260px;
+    overflow-y:auto;
+    color:var(--dim);
   }
+
   #log .ok{color:var(--live)}
   #log .ng{color:var(--err)}
+  #log .corr{color:var(--corr)}
 </style>
 </head>
+
 <body>
 
-<h1>手順2 — AmiVoice WebSocket</h1>
+<h1>AmiVoice リアルタイム文字起こし</h1>
+
+<h2>AmiVoice APPKEY</h2>
 
 <form id="keyform" autocomplete="on">
-  <input type="text" name="username" autocomplete="username" value="amivoice-api">
-  <input type="password" id="key" name="password" autocomplete="current-password"
-         placeholder="AmiVoice APPKEY">
+
+  <input
+    type="text"
+    name="username"
+    autocomplete="username"
+    value="amivoice-api">
+
+  <input
+    type="password"
+    id="key"
+    name="password"
+    autocomplete="current-password"
+    placeholder="AmiVoice APPKEY">
+
 </form>
+
+
+<h2>OpenAI API KEY</h2>
+
+<input
+  type="password"
+  id="openaiKey"
+  autocomplete="off"
+  placeholder="OpenAI API Key">
+
 
 <div class="row">
   <button id="start">開始</button>
   <button id="stop" disabled>停止</button>
 </div>
 
-<div class="meter"><div id="bar"></div></div>
+
+<div class="meter">
+  <div id="bar"></div>
+</div>
+
 
 <h2>認識結果</h2>
-<div id="text"><p id="interim"></p></div>
+
+<div id="text">
+  <p id="interim"></p>
+</div>
+
 
 <dl>
-  <dt>入力レート</dt><dd id="sr">—</dd>
-  <dt>送信レート</dt><dd id="out">—</dd>
-  <dt>送信バイト数</dt><dd id="sent">0</dd>
-  <dt>確定発話数</dt><dd id="utt">0</dd>
+
+  <dt>入力レート</dt>
+  <dd id="sr">—</dd>
+
+  <dt>送信レート</dt>
+  <dd id="out">—</dd>
+
+  <dt>送信バイト数</dt>
+  <dd id="sent">0</dd>
+
+  <dt>確定発話数</dt>
+  <dd id="utt">0</dd>
+
+  <dt>校正済み</dt>
+  <dd id="corrCount">0</dd>
+
+  <dt>校正待ち</dt>
+  <dd id="corrQueue">0</dd>
+
 </dl>
 
+
 <h2>プロトコルログ</h2>
+
 <div id="log">待機中。</div>
 
+
 <script>
+
 const $ = id => document.getElementById(id);
+
+
+/* =========================================================
+   AmiVoice
+   ========================================================= */
+
 const WS_URL   = "wss://acp-api.amivoice.com/v1/nolog/";
 const OUT_RATE = 16000;
-const CHUNK    = 8000;          // 16000 Hz で 0.5 秒 = 16000 バイト
+const CHUNK    = 8000;
 
-let ctx, ws, stream, node, ready = false, sent = 0, utt = 0;
 
-$("keyform").addEventListener("submit", e => e.preventDefault());
+/* =========================================================
+   OpenAI
+   ========================================================= */
+
+const OPENAI_URL   = "https://api.openai.com/v1/responses";
+
+/*
+ * ここは校正用。
+ *
+ * まずは速度とコストを考えて軽量モデルを使用。
+ * 必要なら後で変更する。
+ */
+const OPENAI_MODEL = "gpt-5.6-luna";
+
+
+/* =========================================================
+   状態
+   ========================================================= */
+
+let ctx;
+let ws;
+let stream;
+let node;
+
+let ready = false;
+
+let sent = 0;
+let utt = 0;
+
+let finalId = 0;
+
+
+/*
+ * 校正済み発話数
+ */
+let correctedCount = 0;
+
+
+/*
+ * 校正中の発話数
+ */
+let correctingCount = 0;
+
+
+/*
+ * 直前の確定発話を保持。
+ *
+ * 文脈としてAIに渡すため。
+ */
+let previousTexts = [];
+
+
+/* =========================================================
+   ログ
+   ========================================================= */
+
+$("keyform").addEventListener(
+  "submit",
+  e => e.preventDefault()
+);
+
 
 function log(msg, cls){
-  const t = new Date().toTimeString().slice(0,8);
-  $("log").innerHTML += `\n${t}  ${cls ? `<span class="${cls}">${msg}</span>` : msg}`;
-  $("log").scrollTop = $("log").scrollHeight;
+
+  const t =
+    new Date()
+      .toTimeString()
+      .slice(0,8);
+
+  $("log").innerHTML +=
+    `\n${t}  ${
+      cls
+        ? `<span class="${cls}">${msg}</span>`
+        : msg
+    }`;
+
+  $("log").scrollTop =
+    $("log").scrollHeight;
 }
+
+
+/* =========================================================
+   UI
+   ========================================================= */
+
+function updateCorrectionStatus(){
+
+  $("corrCount").textContent =
+    correctedCount;
+
+  $("corrQueue").textContent =
+    correctingCount;
+}
+
+
+/* =========================================================
+   発話確定
+   ========================================================= */
 
 function addFinal(text){
-  const p = document.createElement("p");
-  p.textContent = text;
-  $("text").insertBefore(p, $("interim"));   // 追加のみ。既存行は書き換えない
-  $("interim").textContent = "";
-  $("utt").textContent = ++utt;
-}
 
-// 入力レートが 16000 でない場合、線形補間でリサンプルする。
-// ブロック境界を跨ぐため、直前ブロックの末尾サンプルと小数位置を保持する。
-const workletSrc = `
-class Pcm extends AudioWorkletProcessor {
-  constructor(opts){
-    super();
-    const o = opts.processorOptions;
-    this.step = o.inRate / ${OUT_RATE};
-    this.buf  = new Int16Array(${CHUNK});
-    this.i    = 0;
-    this.pos  = 0;      // 現ブロック先頭からの小数位置（-1 以上）
-    this.tail = 0;      // 直前ブロックの末尾サンプル
-    this.tick = 0;
-  }
-  push(v){
-    if (v > 1) v = 1; else if (v < -1) v = -1;
-    this.buf[this.i++] = v < 0 ? v * 0x8000 : v * 0x7FFF;
-    if (this.i === this.buf.length){
-      const out = this.buf;
-      this.port.postMessage({ pcm: out.buffer }, [out.buffer]);
-      this.buf = new Int16Array(${CHUNK});
-      this.i = 0;
-    }
-  }
-  process(inputs){
-    const ch = inputs[0] && inputs[0][0];
-    if (!ch || !ch.length) return true;
-    const n = ch.length;
+  text = String(text || "").trim();
 
-    let sum = 0;
-    for (let k = 0; k < n; k++) sum += ch[k] * ch[k];
-    if ((this.tick++ % 8) === 0){
-      this.port.postMessage({ rms: Math.sqrt(sum / n) });
-    }
-
-    let p = this.pos;
-    while (true){
-      const i0 = Math.floor(p);
-      if (i0 + 1 >= n) break;             // 次ブロックが必要
-      const a = i0 < 0 ? this.tail : ch[i0];
-      const b = ch[i0 + 1];
-      this.push(a + (b - a) * (p - i0));
-      p += this.step;
-    }
-    this.tail = ch[n - 1];
-    this.pos  = p - n;
-    return true;
-  }
-}
-registerProcessor('pcm', Pcm);
-`;
-
-$("start").addEventListener("click", async () => {
-  const key = $("key").value.trim();
-  if (!key){ log("APPKEY を入力してください。", "ng"); return; }
-
-  $("start").disabled = true;
-
-  // AudioContext はユーザー操作と同じ実行フレーム内で生成する（iOS の要件）
-  // 16000 Hz を明示要求する。無視された場合は Worklet 側でリサンプルする。
-  const AC = window.AudioContext || window.webkitAudioContext;
-  try {
-    try { ctx = new AC({ sampleRate: OUT_RATE }); }
-    catch (e){ log("sampleRate 指定が拒否されました: " + e.message); ctx = new AC(); }
-    ctx.resume();
-  } catch (e) {
-    log("AudioContext 生成に失敗: " + e.message, "ng");
-    $("start").disabled = false;
+  if (!text){
     return;
   }
 
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation:false, noiseSuppression:false, autoGainControl:false }
-    });
-    await ctx.resume();
 
-    const inRate = ctx.sampleRate;
-    $("sr").textContent  = inRate + " Hz";
-    $("out").textContent = OUT_RATE + " Hz";
-    log("マイク取得 OK  入力=" + inRate + " Hz", "ok");
-    if (inRate === OUT_RATE) log("リサンプル不要");
-    else log("リサンプル有効  " + inRate + " → " + OUT_RATE + " Hz（比 " + (inRate/OUT_RATE).toFixed(3) + "）");
+  /*
+   * 発話ID
+   */
+  const id = ++finalId;
 
-    const url = URL.createObjectURL(new Blob([workletSrc], {type:"application/javascript"}));
-    await ctx.audioWorklet.addModule(url);
-    URL.revokeObjectURL(url);
 
-    const src = ctx.createMediaStreamSource(stream);
-    node = new AudioWorkletNode(ctx, "pcm", { processorOptions: { inRate } });
-    const mute = ctx.createGain();
-    mute.gain.value = 0;
-    src.connect(node);
-    node.connect(mute);
-    mute.connect(ctx.destination);
+  /*
+   * 画面へ即時表示
+   *
+   * ここではAIを待たない。
+   */
+  const p =
+    document.createElement("p");
 
-    node.port.onmessage = e => {
-      if (e.data.rms !== undefined){
-        const db = 20 * Math.log10(e.data.rms || 1e-8);
-        $("bar").style.width = Math.max(0, Math.min(100, (db + 60) / 60 * 100)) + "%";
-        return;
-      }
-      if (!ready || !ws || ws.readyState !== 1) return;
-      const pcm = new Uint8Array(e.data.pcm);
-      const frame = new Uint8Array(pcm.length + 1);
-      frame[0] = 0x70;                      // 'p'
-      frame.set(pcm, 1);
-      ws.send(frame);
-      sent += pcm.length;
-      $("sent").textContent = sent.toLocaleString();
-    };
+  p.dataset.id = id;
 
-    log("WebSocket 接続中…");
-    ws = new WebSocket(WS_URL);
-    ws.binaryType = "arraybuffer";
+  p.textContent = text;
 
-    ws.onopen = () => {
-      log("WebSocket 接続 OK", "ok");
-      ws.send(`s LSB16K -a-general resultUpdatedInterval=500 authorization=${key}`);
-      log("送信 >>> s LSB16K -a-general resultUpdatedInterval=500 authorization=****");
-    };
+  $("text")
+    .insertBefore(
+      p,
+      $("interim")
+    );
 
-    ws.onmessage = ev => {
-      const msg  = typeof ev.data === "string" ? ev.data : "";
-      const type = msg[0];
-      const body = msg.slice(1).trim();
+  $("interim").textContent = "";
 
-      switch (type){
-        case "s":
-          if (body){ log("s コマンド失敗: " + body, "ng"); }
-          else { ready = true; log("s 応答 OK — 音声送信開始", "ok"); $("stop").disabled = false; }
-          break;
-        case "e":
-          if (body) log("e コマンド失敗: " + body, "ng"); else log("e 応答 OK");
-          break;
-        case "S": log("S 音声区間開始 " + body); break;
-        case "C": log("C 認識開始"); break;
-        case "E": log("E 音声区間終了"); break;
-        case "G": break;
-        case "U":
-          try { $("interim").textContent = JSON.parse(body).text || ""; }
-          catch (err) { log("U 解析失敗: " + body, "ng"); }
-          break;
-        case "A":
-          try {
-            const r = JSON.parse(body);
-            if (r.code && r.message){ log("A エラー: " + r.message, "ng"); break; }
-            if (r.text) addFinal(r.text);
-          } catch (err) { log("A 解析失敗: " + body, "ng"); }
-          break;
-        default:
-          log("未知のパケット: " + msg.slice(0, 120));
-      }
-    };
+  $("utt").textContent =
+    ++utt;
 
-    ws.onerror = () => log("WebSocket エラー", "ng");
-    ws.onclose  = ev => log(`WebSocket 切断 code=${ev.code} reason=${ev.reason || "なし"}`);
 
-  } catch (e) {
-    log(e.name + ": " + e.message, "ng");
-    $("start").disabled = false;
+  /*
+   * ログ
+   */
+  log(
+    `A 確定 #${id}: ${text}`,
+    "ok"
+  );
+
+
+  /*
+   * 直前発話を文脈として保存
+   */
+  previousTexts.push(text);
+
+  /*
+   * 最大2発話だけ保持
+   */
+  if (previousTexts.length > 2){
+    previousTexts.shift();
   }
-});
 
-$("stop").addEventListener("click", () => {
-  $("stop").disabled = true;
-  ready = false;
-  try { if (ws && ws.readyState === 1) ws.send("e"); } catch (e) {}
-  if (node) node.port.onmessage = null;
-  if (stream) stream.getTracks().forEach(t => t.stop());
-  if (ctx) ctx.close();
-  log("停止しました。");
-  setTimeout(() => { if (ws) ws.close(); $("start").disabled = false; }, 1500);
-});
+
+  /*
+   * 非同期校正開始
+   */
+  correctText(
+    id,
+    text,
+    [...previousTexts.slice(0,-1)]
+  );
+}
+
+
+/* =========================================================
+   AI校正
+   ========================================================= */
+
+async function correctText(
+  id,
+  text,
+  contextTexts
+){
+
+  const apiKey =
+    $("openaiKey").value.trim();
+
+
+  /*
+   * APIキーがない場合、
+   * AmiVoiceだけで動作させる。
+   */
+  if (!apiKey){
+
+    log(
+      `校正 #${id}: OpenAI API KEYなし → 原文維持`
+    );
+
+    return;
+  }
+
+
+  correctingCount++;
+
+  updateCorrectionStatus();
+
+
+  /*
+   * 該当するDOMを取得
+   */
+  const p =
+    document.querySelector(
+      `#text p[data-id="${id}"]`
+    );
+
+
+  if (p){
+    p.classList.add("correcting");
+  }
+
+
+  /*
+   * 文脈
+   */
+  let context = "";
+
+  if (contextTexts.length){
+
+    context =
+      "\n\n【直前の発話】\n" +
+      contextTexts.join("\n");
+
+  }
+
+
+  /*
+   * AIへの指示
+   *
+   * 「文章を上手にする」のではなく
+   * 「音声認識の誤りだけ直す」
+   */
+  const instructions = `
+あなたは日本語音声認識結果の校正エンジンです。
+
+目的は、音声認識による明らかな誤認識だけを修正することです。
+
+最重要ルール：
+
+1. 話者が言っていない情報を追加しない。
+2. 内容を推測して補完しない。
+3. 要約しない。
+4. 言い換えない。
+5. 文体を変更しない。
+6. 話者の意図を変更しない。
+7. 不明な部分は原文を維持する。
+8. 明らかな誤認識がない場合は原文をそのまま返す。
+9. 数字・固有名詞なども、文脈だけを根拠に勝手に変更しない。
+10. 出力は校正後の文章だけ。説明は禁止。
+
+【今回の音声認識結果】
+${text}
+${context}
+`;
+
+
+  try{
+
+    const response =
+      await fetch(
+        OPENAI_URL,
+        {
+          method:"POST",
+
+          headers:{
+            "Content-Type":
+              "application/json",
+
+            "Authorization":
+              "Bearer " + apiKey
+          },
+
+          body:JSON.stringify({
+
+            model:
+              OPENAI_MODEL,
+
+            input:
+              instructions,
+
+            max_output_tokens:
+              300
+
+          })
+        }
+      );
+
+
+    if (!response.ok){
+
+      const errText =
+        await response.text();
+
+      throw new Error(
+        `HTTP ${response.status} ${errText}`
+      );
+    }
+
+
+    const data =
+      await response.json();
+
+
+    /*
+     * Responses API のテキスト結果
+     */
+    const corrected =
+      String(
+        (data.output || [])
+          .filter(it => it.type === "message")
+          .flatMap(it => it.content || [])
+          .filter(c => c.type === "output_text")
+          .map(c => c.text)
+          .join("")
+      ).trim();
+
+    if (!corrected){
+
+      throw new Error(
+        "校正結果が空です"
+      );
+    }
+
+
+    /*
+     * 元文と同じなら
+     * 実質的に変更なし
+     */
+    if (corrected === text){
+
+      log(
+        `校正 #${id}: 変更なし`,
+        "corr"
+      );
+
+    }else{
+
+      /*
+       * 該当発話だけ置き換える
+       */
+      const target =
+        document.querySelector(
+          `#text p[data-id="${id}"]`
+        );
+
+
+      if (target){
+
+        target.textContent =
+          corrected;
+
+        target.classList.remove(
+          "correcting"
+        );
+
+        target.classList.add(
+          "corrected"
+        );
+
+
+        log(
+          `校正 #${id}: ${text} → ${corrected}`,
+          "corr"
+        );
+
+      }
+
+
+      correctedCount++;
+
+    }
+
+
+  }catch(e){
+
+    /*
+     * 校正失敗でも
+     * AmiVoiceの原文は残す。
+     */
+
+    log(
+      `校正 #${id} 失敗: ${e.message}`,
+      "ng"
+    );
+
+
+    const target =
+      document.querySelector(
+        `#text p[data-id="${id}"]`
+      );
+
+
+    if (target){
+
+      target.classList.remove(
+        "correcting"
+      );
+
+    }
+
+  }finally{
+
+    correctingCount--;
+
+    updateCorrectionStatus();
+
+  }
+
+}
+
+
+/* =========================================================
+   AudioWorklet
+   ========================================================= */
+
+const workletSrc = `
+class Pcm extends AudioWorkletProcessor {
+
+  constructor(opts){
+
+    super();
+
+    const o =
+      opts.processorOptions;
+
+    this.step =
+      o.inRate / ${OUT_RATE};
+
+    this.buf =
+      new Int16Array(${CHUNK});
+
+    this.i = 0;
+
+    this.pos = 0;
+
+    this.tail = 0;
+
+    this.tick = 0;
+  }
+
+
+  push(v){
+
+    if (v > 1)
+      v = 1;
+
+    else if (v < -1)
+      v = -1;
+
+
+    this.buf[this.i++] =
+      v < 0
+        ? v * 0x8000
+        : v * 0x7FFF;
+
+
+    if (
+      this.i ===
+      this.buf.length
+    ){
+
+      const out =
+        this.buf;
+
+
+      this.port.postMessage(
+        {
+          pcm: out.buffer
+        },
+        [out.buffer]
+      );
+
+
+      this.buf =
+        new Int16Array(${CHUNK});
+
+      this.i = 0;
+    }
+
+  }
+
+
+  process(inputs){
+
+    const ch =
+      inputs[0] &&
+      inputs[0][0];
+
+
+    if (
+      !ch ||
+      !ch.length
+    )
+      return true;
+
+
+    const n =
+      ch.length;
+
+
+    let sum = 0;
+
+
+    for (
+      let k=0;
+      k<n;
+      k++
+    ){
+
+      sum +=
+        ch[k] * ch[k];
+
+    }
+
+
+    if (
+      (this.tick++ % 8) === 0
+    ){
+
+      this.port.postMessage(
+        {
+          rms:
+            Math.sqrt(
+              sum / n
+            )
+        }
+      );
+
+    }
+
+
+    let p =
+      this.pos;
+
+
+    while(true){
+
+      const i0 =
+        Math.floor(p);
+
+
+      if (
+        i0 + 1 >= n
+      )
+        break;
+
+
+      const a =
+        i0 < 0
+          ? this.tail
+          : ch[i0];
+
+
+      const b =
+        ch[i0 + 1];
+
+
+      this.push(
+        a +
+        (b-a) *
+        (p-i0)
+      );
+
+
+      p +=
+        this.step;
+
+    }
+
+
+    this.tail =
+      ch[n-1];
+
+
+    this.pos =
+      p-n;
+
+
+    return true;
+  }
+
+}
+
+registerProcessor(
+  'pcm',
+  Pcm
+);
+`;
+
+
+/* =========================================================
+   開始
+   ========================================================= */
+
+$("start").addEventListener(
+  "click",
+  async () => {
+
+    const key =
+      $("key").value.trim();
+
+
+    if (!key){
+
+      log(
+        "AmiVoice APPKEY を入力してください。",
+        "ng"
+      );
+
+      return;
+    }
+
+
+    $("start").disabled =
+      true;
+
+
+    const AC =
+      window.AudioContext ||
+      window.webkitAudioContext;
+
+
+    try{
+
+      try{
+
+        ctx =
+          new AC({
+            sampleRate:
+              OUT_RATE
+          });
+
+      }catch(e){
+
+        log(
+          "sampleRate指定拒否 → 通常モード"
+        );
+
+        ctx =
+          new AC();
+
+      }
+
+
+      await ctx.resume();
+
+
+    }catch(e){
+
+      log(
+        "AudioContext生成失敗: " +
+        e.message,
+        "ng"
+      );
+
+      $("start").disabled =
+        false;
+
+      return;
+    }
+
+
+    try{
+
+      stream =
+        await navigator.mediaDevices
+          .getUserMedia({
+
+            audio:{
+              echoCancellation:false,
+              noiseSuppression:false,
+              autoGainControl:false
+            }
+
+          });
+
+
+      await ctx.resume();
+
+
+      const inRate =
+        ctx.sampleRate;
+
+
+      $("sr").textContent =
+        inRate + " Hz";
+
+      $("out").textContent =
+        OUT_RATE + " Hz";
+
+
+      log(
+        "マイク取得 OK 入力=" +
+        inRate +
+        " Hz",
+        "ok"
+      );
+
+
+      if (
+        inRate === OUT_RATE
+      ){
+
+        log(
+          "リサンプル不要"
+        );
+
+      }else{
+
+        log(
+          "リサンプル有効 " +
+          inRate +
+          " → " +
+          OUT_RATE +
+          " Hz"
+        );
+
+      }
+
+
+      const url =
+        URL.createObjectURL(
+          new Blob(
+            [workletSrc],
+            {
+              type:
+                "application/javascript"
+            }
+          )
+        );
+
+
+      await ctx.audioWorklet
+        .addModule(url);
+
+
+      URL.revokeObjectURL(url);
+
+
+      const src =
+        ctx.createMediaStreamSource(
+          stream
+        );
+
+
+      node =
+        new AudioWorkletNode(
+          ctx,
+          "pcm",
+          {
+            processorOptions:{
+              inRate
+            }
+          }
+        );
+
+
+      const mute =
+        ctx.createGain();
+
+
+      mute.gain.value =
+        0;
+
+
+      src.connect(node);
+
+      node.connect(mute);
+
+      mute.connect(
+        ctx.destination
+      );
+
+
+      /*
+       * PCM送信
+       */
+      node.port.onmessage =
+        e => {
+
+          if (
+            e.data.rms !== undefined
+          ){
+
+            const db =
+              20 *
+              Math.log10(
+                e.data.rms ||
+                1e-8
+              );
+
+
+            $("bar").style.width =
+              Math.max(
+                0,
+                Math.min(
+                  100,
+                  (db+60)/60*100
+                )
+              ) + "%";
+
+
+            return;
+          }
+
+
+          if (
+            !ready ||
+            !ws ||
+            ws.readyState !== 1
+          )
+            return;
+
+
+          const pcm =
+            new Uint8Array(
+              e.data.pcm
+            );
+
+
+          const frame =
+            new Uint8Array(
+              pcm.length + 1
+            );
+
+
+          frame[0] =
+            0x70;
+
+
+          frame.set(
+            pcm,
+            1
+          );
+
+
+          ws.send(frame);
+
+
+          sent +=
+            pcm.length;
+
+
+          $("sent").textContent =
+            sent.toLocaleString();
+
+        };
+
+
+      /*
+       * AmiVoice接続
+       */
+      log(
+        "AmiVoice WebSocket 接続中…"
+      );
+
+
+      ws =
+        new WebSocket(
+          WS_URL
+        );
+
+
+      ws.binaryType =
+        "arraybuffer";
+
+
+      ws.onopen =
+        () => {
+
+          log(
+            "WebSocket接続 OK",
+            "ok"
+          );
+
+
+          ws.send(
+            `s LSB16K -a-general resultUpdatedInterval=500 authorization=${key}`
+          );
+
+
+          log(
+            "AmiVoice開始コマンド送信",
+            "ok"
+          );
+
+        };
+
+
+      ws.onmessage =
+        ev => {
+
+          const msg =
+            typeof ev.data === "string"
+              ? ev.data
+              : "";
+
+
+          const type =
+            msg[0];
+
+
+          const body =
+            msg
+              .slice(1)
+              .trim();
+
+
+          switch(type){
+
+            case "s":
+
+              if (body){
+
+                log(
+                  "s コマンド失敗: " +
+                  body,
+                  "ng"
+                );
+
+              }else{
+
+                ready =
+                  true;
+
+
+                log(
+                  "s 応答 OK — 音声送信開始",
+                  "ok"
+                );
+
+
+                $("stop").disabled =
+                  false;
+
+              }
+
+              break;
+
+
+            case "e":
+
+              if (body){
+
+                log(
+                  "e コマンド失敗: " +
+                  body,
+                  "ng"
+                );
+
+              }else{
+
+                log(
+                  "e 応答 OK"
+                );
+
+              }
+
+              break;
+
+
+            case "S":
+
+              log(
+                "S 音声区間開始 " +
+                body
+              );
+
+              break;
+
+
+            case "C":
+
+              log(
+                "C 認識開始"
+              );
+
+              break;
+
+
+            case "E":
+
+              log(
+                "E 音声区間終了"
+              );
+
+              break;
+
+
+            case "G":
+
+              break;
+
+
+            /*
+             * 暫定認識
+             */
+            case "U":
+
+              try{
+
+                const r =
+                  JSON.parse(body);
+
+
+                $("interim").textContent =
+                  r.text || "";
+
+              }catch(err){
+
+                log(
+                  "U解析失敗: " +
+                  body,
+                  "ng"
+                );
+
+              }
+
+              break;
+
+
+            /*
+             * 確定認識
+             */
+            case "A":
+
+              try{
+
+                const r =
+                  JSON.parse(body);
+
+
+                if (
+                  r.code &&
+                  r.message
+                ){
+
+                  log(
+                    "Aエラー: " +
+                    r.message,
+                    "ng"
+                  );
+
+                  break;
+                }
+
+
+                if (r.text){
+
+                  addFinal(
+                    r.text
+                  );
+
+                }
+
+              }catch(err){
+
+                log(
+                  "A解析失敗: " +
+                  body,
+                  "ng"
+                );
+
+              }
+
+              break;
+
+
+            default:
+
+              log(
+                "未知のパケット: " +
+                msg.slice(0,120)
+              );
+
+          }
+
+        };
+
+
+      ws.onerror =
+        () => {
+
+          log(
+            "WebSocketエラー",
+            "ng"
+          );
+
+        };
+
+
+      ws.onclose =
+        ev => {
+
+          log(
+            `WebSocket切断 code=${ev.code} reason=${ev.reason || "なし"}`
+          );
+
+        };
+
+
+    }catch(e){
+
+      log(
+        e.name +
+        ": " +
+        e.message,
+        "ng"
+      );
+
+
+      $("start").disabled =
+        false;
+
+    }
+
+  }
+);
+
+
+/* =========================================================
+   停止
+   ========================================================= */
+
+$("stop").addEventListener(
+  "click",
+  () => {
+
+    $("stop").disabled =
+      true;
+
+
+    ready =
+      false;
+
+
+    try{
+
+      if (
+        ws &&
+        ws.readyState === 1
+      ){
+
+        ws.send("e");
+
+      }
+
+    }catch(e){}
+
+
+    if (node){
+
+      node.port.onmessage =
+        null;
+
+    }
+
+
+    if (stream){
+
+      stream
+        .getTracks()
+        .forEach(
+          t => t.stop()
+        );
+
+    }
+
+
+    if (ctx){
+
+      ctx.close();
+
+    }
+
+
+    log(
+      "停止しました。"
+    );
+
+
+    setTimeout(
+      () => {
+
+        if (ws)
+          ws.close();
+
+
+        $("start").disabled =
+          false;
+
+      },
+      1500
+    );
+
+  }
+);
+
 </script>
+
 </body>
 </html>
