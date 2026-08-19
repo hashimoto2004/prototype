@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>手順1 マイク音量</title>
+<style>
+  :root{
+    --ink:#e8e6e1;
+    --dim:#7c8590;
+    --bg:#12161a;
+    --panel:#1a2026;
+    --line:#2a333c;
+    --live:#4ad4a0;
+    --peak:#e8b04a;
+    --err:#e8695f;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--bg);color:var(--ink);}
+  body{
+    font:400 15px/1.6 ui-monospace,"SF Mono",Menlo,monospace;
+    padding:20px 16px 48px;
+    -webkit-text-size-adjust:100%;
+  }
+  h1{
+    font-size:13px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--dim);font-weight:500;margin-bottom:20px;
+  }
+  button{
+    width:100%;padding:18px;margin-bottom:20px;
+    background:var(--panel);color:var(--ink);
+    border:1px solid var(--line);border-radius:2px;
+    font:500 16px/1 ui-monospace,Menlo,monospace;
+    letter-spacing:.06em;
+    -webkit-tap-highlight-color:transparent;
+  }
+  button:active{background:#232b33}
+  button:disabled{opacity:.35}
+
+  .meter{
+    height:56px;background:var(--panel);
+    border:1px solid var(--line);border-radius:2px;
+    position:relative;overflow:hidden;margin-bottom:4px;
+  }
+  #bar{
+    position:absolute;left:0;top:0;bottom:0;width:0%;
+    background:var(--live);
+    transition:width 60ms linear;
+  }
+  #peak{
+    position:absolute;top:0;bottom:0;width:2px;
+    background:var(--peak);left:0;
+  }
+  .scale{
+    display:flex;justify-content:space-between;
+    color:var(--dim);font-size:11px;margin-bottom:24px;
+  }
+
+  dl{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;margin-bottom:24px}
+  dt{color:var(--dim);font-size:13px}
+  dd{text-align:right;font-variant-numeric:tabular-nums}
+
+  #log{
+    background:var(--panel);border:1px solid var(--line);
+    border-radius:2px;padding:12px;
+    font-size:12px;line-height:1.7;
+    white-space:pre-wrap;word-break:break-all;
+    min-height:140px;color:var(--dim);
+  }
+  #log .ok{color:var(--live)}
+  #log .ng{color:var(--err)}
+</style>
+</head>
+<body>
+
+<h1>手順1 — マイク入力の確認</h1>
+
+<button id="start">マイクを開く</button>
+
+<div class="meter">
+  <div id="bar"></div>
+  <div id="peak"></div>
+</div>
+<div class="scale"><span>-60 dB</span><span>-30</span><span>0</span></div>
+
+<dl>
+  <dt>入力レベル</dt><dd id="db">—</dd>
+  <dt>サンプルレート</dt><dd id="sr">—</dd>
+  <dt>1回あたりのフレーム数</dt><dd id="frames">—</dd>
+  <dt>コールバック回数</dt><dd id="count">0</dd>
+</dl>
+
+<div id="log">待機中。ボタンを押すとマイクの許可を求めます。</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const logEl = $("log");
+let started = false;
+
+function log(msg, cls){
+  const t = new Date().toTimeString().slice(0,8);
+  const span = cls ? `<span class="${cls}">${msg}</span>` : msg;
+  logEl.innerHTML += `\n${t}  ${span}`;
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+// AudioWorklet 本体。Blob URL 経由で読み込む
+const workletSrc = `
+class VU extends AudioWorkletProcessor {
+  process(inputs){
+    const ch = inputs[0] && inputs[0][0];
+    if (ch && ch.length){
+      let sum = 0, peak = 0;
+      for (let i = 0; i < ch.length; i++){
+        const v = ch[i];
+        sum += v * v;
+        const a = v < 0 ? -v : v;
+        if (a > peak) peak = a;
+      }
+      this.port.postMessage({
+        rms: Math.sqrt(sum / ch.length),
+        peak: peak,
+        n: ch.length
+      });
+    }
+    return true;
+  }
+}
+registerProcessor('vu', VU);
+`;
+
+$("start").addEventListener("click", async () => {
+  if (started) return;
+  started = true;
+  $("start").disabled = true;
+
+  // AudioContext はユーザー操作と同じ実行フレーム内で生成する（iOS の要件）
+  let ctx;
+  try {
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    ctx.resume();
+  } catch (e) {
+    log("AudioContext 生成に失敗: " + e.message, "ng");
+    return;
+  }
+
+  try {
+    log("マイクの許可を要求中…");
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false
+      }
+    });
+    log("マイク取得 OK", "ok");
+
+    await ctx.resume();
+    $("sr").textContent = ctx.sampleRate + " Hz";
+    log("AudioContext state=" + ctx.state + " sampleRate=" + ctx.sampleRate);
+
+    const url = URL.createObjectURL(
+      new Blob([workletSrc], { type: "application/javascript" })
+    );
+    await ctx.audioWorklet.addModule(url);
+    URL.revokeObjectURL(url);
+    log("AudioWorklet 読み込み OK", "ok");
+
+    const src  = ctx.createMediaStreamSource(stream);
+    const node = new AudioWorkletNode(ctx, "vu");
+
+    // ハウリング防止のため無音のゲートを挟んでから出力に接続する
+    const mute = ctx.createGain();
+    mute.gain.value = 0;
+    src.connect(node);
+    node.connect(mute);
+    mute.connect(ctx.destination);
+
+    let n = 0, peakHold = 0, holdUntil = 0;
+
+    node.port.onmessage = e => {
+      const { rms, peak, n: frames } = e.data;
+      if (n === 0){
+        $("frames").textContent = frames;
+        log("PCM コールバック開始", "ok");
+      }
+      if (++n % 10 === 0) $("count").textContent = n;
+
+      const db = 20 * Math.log10(rms || 1e-8);
+      const pct = Math.max(0, Math.min(100, (db + 60) / 60 * 100));
+      $("bar").style.width = pct + "%";
+      $("db").textContent = db.toFixed(1) + " dB";
+
+      const now = performance.now();
+      if (peak >= peakHold || now > holdUntil){
+        peakHold = peak;
+        holdUntil = now + 800;
+        const pdb = 20 * Math.log10(peak || 1e-8);
+        $("peak").style.left =
+          Math.max(0, Math.min(100, (pdb + 60) / 60 * 100)) + "%";
+      }
+    };
+
+    log("準備完了。話しかけてください。");
+
+  } catch (e) {
+    log(e.name + ": " + e.message, "ng");
+    log("マイクが開けませんでした。設定 > Safari > マイク を確認してください。");
+    $("start").disabled = false;
+    started = false;
+  }
+});
+</script>
+</body>
+</html>
