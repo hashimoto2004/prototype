@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>手順1 マイク音量</title>
+<title>手順2 AmiVoice 接続</title>
 <style>
   :root{
     --ink:#e8e6e1;
@@ -12,60 +12,60 @@
     --panel:#1a2026;
     --line:#2a333c;
     --live:#4ad4a0;
-    --peak:#e8b04a;
+    --interim:#8a929c;
     --err:#e8695f;
   }
   *{box-sizing:border-box;margin:0;padding:0}
-  html,body{background:var(--bg);color:var(--ink);}
+  html,body{background:var(--bg);color:var(--ink)}
   body{
     font:400 15px/1.6 ui-monospace,"SF Mono",Menlo,monospace;
     padding:20px 16px 48px;
     -webkit-text-size-adjust:100%;
   }
-  h1{
-    font-size:13px;letter-spacing:.18em;text-transform:uppercase;
-    color:var(--dim);font-weight:500;margin-bottom:20px;
-  }
-  button{
-    width:100%;padding:18px;margin-bottom:20px;
+  h1{font-size:13px;letter-spacing:.18em;text-transform:uppercase;
+     color:var(--dim);font-weight:500;margin-bottom:18px}
+  h2{font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+     color:var(--dim);font-weight:500;margin:24px 0 8px}
+
+  input{
+    width:100%;padding:14px;margin-bottom:10px;
     background:var(--panel);color:var(--ink);
     border:1px solid var(--line);border-radius:2px;
-    font:500 16px/1 ui-monospace,Menlo,monospace;
-    letter-spacing:.06em;
+    font:400 15px/1 ui-monospace,Menlo,monospace;
+  }
+  input[name=username]{display:none}
+
+  .row{display:flex;gap:10px;margin-bottom:18px}
+  button{
+    flex:1;padding:18px;
+    background:var(--panel);color:var(--ink);
+    border:1px solid var(--line);border-radius:2px;
+    font:500 16px/1 ui-monospace,Menlo,monospace;letter-spacing:.06em;
     -webkit-tap-highlight-color:transparent;
   }
   button:active{background:#232b33}
-  button:disabled{opacity:.35}
+  button:disabled{opacity:.3}
 
-  .meter{
-    height:56px;background:var(--panel);
-    border:1px solid var(--line);border-radius:2px;
-    position:relative;overflow:hidden;margin-bottom:4px;
-  }
-  #bar{
-    position:absolute;left:0;top:0;bottom:0;width:0%;
-    background:var(--live);
-    transition:width 60ms linear;
-  }
-  #peak{
-    position:absolute;top:0;bottom:0;width:2px;
-    background:var(--peak);left:0;
-  }
-  .scale{
-    display:flex;justify-content:space-between;
-    color:var(--dim);font-size:11px;margin-bottom:24px;
-  }
+  .meter{height:8px;background:var(--panel);border:1px solid var(--line);
+         border-radius:2px;overflow:hidden;margin-bottom:18px}
+  #bar{height:100%;width:0%;background:var(--live);transition:width 60ms linear}
 
-  dl{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;margin-bottom:24px}
-  dt{color:var(--dim);font-size:13px}
-  dd{text-align:right;font-variant-numeric:tabular-nums}
+  #text{
+    background:var(--panel);border:1px solid var(--line);border-radius:2px;
+    padding:14px;min-height:180px;font-size:17px;line-height:1.85;
+  }
+  #text p{margin-bottom:6px}
+  #interim{color:var(--interim)}
+
+  dl{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;margin:16px 0}
+  dt{color:var(--dim);font-size:12px}
+  dd{text-align:right;font-size:12px;font-variant-numeric:tabular-nums}
 
   #log{
-    background:var(--panel);border:1px solid var(--line);
-    border-radius:2px;padding:12px;
-    font-size:12px;line-height:1.7;
+    background:var(--panel);border:1px solid var(--line);border-radius:2px;
+    padding:12px;font-size:11px;line-height:1.7;
     white-space:pre-wrap;word-break:break-all;
-    min-height:140px;color:var(--dim);
+    max-height:220px;overflow-y:auto;color:var(--dim);
   }
   #log .ok{color:var(--live)}
   #log .ng{color:var(--err)}
@@ -73,142 +73,203 @@
 </head>
 <body>
 
-<h1>手順1 — マイク入力の確認</h1>
+<h1>手順2 — AmiVoice WebSocket</h1>
 
-<button id="start">マイクを開く</button>
+<form id="keyform" autocomplete="on">
+  <input type="text" name="username" autocomplete="username" value="amivoice-api">
+  <input type="password" id="key" name="password" autocomplete="current-password"
+         placeholder="AmiVoice APPKEY">
+</form>
 
-<div class="meter">
-  <div id="bar"></div>
-  <div id="peak"></div>
+<div class="row">
+  <button id="start">開始</button>
+  <button id="stop" disabled>停止</button>
 </div>
-<div class="scale"><span>-60 dB</span><span>-30</span><span>0</span></div>
+
+<div class="meter"><div id="bar"></div></div>
+
+<h2>認識結果</h2>
+<div id="text"><p id="interim"></p></div>
 
 <dl>
-  <dt>入力レベル</dt><dd id="db">—</dd>
   <dt>サンプルレート</dt><dd id="sr">—</dd>
-  <dt>1回あたりのフレーム数</dt><dd id="frames">—</dd>
-  <dt>コールバック回数</dt><dd id="count">0</dd>
+  <dt>送信バイト数</dt><dd id="sent">0</dd>
+  <dt>確定発話数</dt><dd id="utt">0</dd>
 </dl>
 
-<div id="log">待機中。ボタンを押すとマイクの許可を求めます。</div>
+<h2>プロトコルログ</h2>
+<div id="log">待機中。</div>
 
 <script>
 const $ = id => document.getElementById(id);
-const logEl = $("log");
-let started = false;
+const WS_URL = "wss://acp-api.amivoice.com/v1/nolog/";
+const CHUNK = 8000;            // 8000サンプル = 0.5秒 = 16000バイト
+
+let ctx, ws, stream, node, ready = false, sent = 0, utt = 0;
+
+$("keyform").addEventListener("submit", e => e.preventDefault());
 
 function log(msg, cls){
   const t = new Date().toTimeString().slice(0,8);
-  const span = cls ? `<span class="${cls}">${msg}</span>` : msg;
-  logEl.innerHTML += `\n${t}  ${span}`;
-  logEl.scrollTop = logEl.scrollHeight;
+  $("log").innerHTML += `\n${t}  ${cls ? `<span class="${cls}">${msg}</span>` : msg}`;
+  $("log").scrollTop = $("log").scrollHeight;
 }
 
-// AudioWorklet 本体。Blob URL 経由で読み込む
+function addFinal(text){
+  const p = document.createElement("p");
+  p.textContent = text;
+  $("text").insertBefore(p, $("interim"));   // 追加のみ。既存行は書き換えない
+  $("interim").textContent = "";
+  $("utt").textContent = ++utt;
+}
+
 const workletSrc = `
-class VU extends AudioWorkletProcessor {
+class Pcm extends AudioWorkletProcessor {
+  constructor(){ super(); this.buf = new Int16Array(${CHUNK}); this.i = 0; this.tick = 0; }
   process(inputs){
     const ch = inputs[0] && inputs[0][0];
-    if (ch && ch.length){
-      let sum = 0, peak = 0;
-      for (let i = 0; i < ch.length; i++){
-        const v = ch[i];
-        sum += v * v;
-        const a = v < 0 ? -v : v;
-        if (a > peak) peak = a;
+    if (!ch || !ch.length) return true;
+    let sum = 0;
+    for (let k = 0; k < ch.length; k++){
+      let v = ch[k];
+      sum += v * v;
+      if (v > 1) v = 1; else if (v < -1) v = -1;
+      this.buf[this.i++] = v < 0 ? v * 0x8000 : v * 0x7FFF;
+      if (this.i === this.buf.length){
+        const out = this.buf;
+        this.port.postMessage({ pcm: out.buffer }, [out.buffer]);
+        this.buf = new Int16Array(${CHUNK});
+        this.i = 0;
       }
-      this.port.postMessage({
-        rms: Math.sqrt(sum / ch.length),
-        peak: peak,
-        n: ch.length
-      });
+    }
+    if ((this.tick++ % 8) === 0){
+      this.port.postMessage({ rms: Math.sqrt(sum / ch.length) });
     }
     return true;
   }
 }
-registerProcessor('vu', VU);
+registerProcessor('pcm', Pcm);
 `;
 
 $("start").addEventListener("click", async () => {
-  if (started) return;
-  started = true;
+  const key = $("key").value.trim();
+  if (!key){ log("APPKEY を入力してください。", "ng"); return; }
+
   $("start").disabled = true;
 
   // AudioContext はユーザー操作と同じ実行フレーム内で生成する（iOS の要件）
-  let ctx;
   try {
     ctx = new (window.AudioContext || window.webkitAudioContext)();
     ctx.resume();
   } catch (e) {
     log("AudioContext 生成に失敗: " + e.message, "ng");
+    $("start").disabled = false;
     return;
   }
 
   try {
-    log("マイクの許可を要求中…");
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false
-      }
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation:false, noiseSuppression:false, autoGainControl:false }
     });
-    log("マイク取得 OK", "ok");
-
     await ctx.resume();
     $("sr").textContent = ctx.sampleRate + " Hz";
-    log("AudioContext state=" + ctx.state + " sampleRate=" + ctx.sampleRate);
+    log("マイク取得 OK  sampleRate=" + ctx.sampleRate, "ok");
 
-    const url = URL.createObjectURL(
-      new Blob([workletSrc], { type: "application/javascript" })
-    );
+    if (ctx.sampleRate !== 16000){
+      log("警告: 16000 Hz ではありません。LSB16K として送るため結果が壊れます。", "ng");
+    }
+
+    const url = URL.createObjectURL(new Blob([workletSrc], {type:"application/javascript"}));
     await ctx.audioWorklet.addModule(url);
     URL.revokeObjectURL(url);
-    log("AudioWorklet 読み込み OK", "ok");
 
-    const src  = ctx.createMediaStreamSource(stream);
-    const node = new AudioWorkletNode(ctx, "vu");
-
-    // ハウリング防止のため無音のゲートを挟んでから出力に接続する
+    const src = ctx.createMediaStreamSource(stream);
+    node = new AudioWorkletNode(ctx, "pcm");
     const mute = ctx.createGain();
     mute.gain.value = 0;
     src.connect(node);
     node.connect(mute);
     mute.connect(ctx.destination);
 
-    let n = 0, peakHold = 0, holdUntil = 0;
-
     node.port.onmessage = e => {
-      const { rms, peak, n: frames } = e.data;
-      if (n === 0){
-        $("frames").textContent = frames;
-        log("PCM コールバック開始", "ok");
+      if (e.data.rms !== undefined){
+        const db = 20 * Math.log10(e.data.rms || 1e-8);
+        $("bar").style.width = Math.max(0, Math.min(100, (db + 60) / 60 * 100)) + "%";
+        return;
       }
-      if (++n % 10 === 0) $("count").textContent = n;
+      if (!ready || !ws || ws.readyState !== 1) return;
+      const pcm = new Uint8Array(e.data.pcm);
+      const frame = new Uint8Array(pcm.length + 1);
+      frame[0] = 0x70;                      // 'p'
+      frame.set(pcm, 1);
+      ws.send(frame);
+      sent += pcm.length;
+      $("sent").textContent = sent.toLocaleString();
+    };
 
-      const db = 20 * Math.log10(rms || 1e-8);
-      const pct = Math.max(0, Math.min(100, (db + 60) / 60 * 100));
-      $("bar").style.width = pct + "%";
-      $("db").textContent = db.toFixed(1) + " dB";
+    log("WebSocket 接続中…");
+    ws = new WebSocket(WS_URL);
+    ws.binaryType = "arraybuffer";
 
-      const now = performance.now();
-      if (peak >= peakHold || now > holdUntil){
-        peakHold = peak;
-        holdUntil = now + 800;
-        const pdb = 20 * Math.log10(peak || 1e-8);
-        $("peak").style.left =
-          Math.max(0, Math.min(100, (pdb + 60) / 60 * 100)) + "%";
+    ws.onopen = () => {
+      log("WebSocket 接続 OK", "ok");
+      const cmd = `s LSB16K -a-general resultUpdatedInterval=500 authorization=${key}`;
+      ws.send(cmd);
+      log("送信 >>> s LSB16K -a-general resultUpdatedInterval=500 authorization=****");
+    };
+
+    ws.onmessage = ev => {
+      const msg = typeof ev.data === "string" ? ev.data : "";
+      const type = msg[0];
+      const body = msg.slice(1).trim();
+
+      switch (type){
+        case "s":
+          if (body){ log("s コマンド失敗: " + body, "ng"); }
+          else { ready = true; log("s 応答 OK — 音声送信開始", "ok"); $("stop").disabled = false; }
+          break;
+        case "e":
+          if (body) log("e コマンド失敗: " + body, "ng");
+          else log("e 応答 OK");
+          break;
+        case "S": log("S 音声区間開始 " + body); break;
+        case "C": log("C 認識開始"); break;
+        case "E": log("E 音声区間終了"); break;
+        case "G": break;
+        case "U":
+          try { $("interim").textContent = JSON.parse(body).text || ""; }
+          catch (err) { log("U 解析失敗: " + body, "ng"); }
+          break;
+        case "A":
+          try {
+            const r = JSON.parse(body);
+            if (r.code && r.message){ log("A エラー: " + r.message, "ng"); break; }
+            if (r.text) addFinal(r.text);
+          } catch (err) { log("A 解析失敗: " + body, "ng"); }
+          break;
+        default:
+          log("未知のパケット: " + msg.slice(0, 120));
       }
     };
 
-    log("準備完了。話しかけてください。");
+    ws.onerror = () => log("WebSocket エラー", "ng");
+    ws.onclose  = ev => log(`WebSocket 切断 code=${ev.code} reason=${ev.reason || "なし"}`);
 
   } catch (e) {
     log(e.name + ": " + e.message, "ng");
-    log("マイクが開けませんでした。設定 > Safari > マイク を確認してください。");
     $("start").disabled = false;
-    started = false;
   }
+});
+
+$("stop").addEventListener("click", () => {
+  $("stop").disabled = true;
+  ready = false;
+  try { if (ws && ws.readyState === 1) ws.send("e"); } catch (e) {}
+  if (node) node.port.onmessage = null;
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  if (ctx) ctx.close();
+  log("停止しました。");
+  setTimeout(() => { if (ws) ws.close(); $("start").disabled = false; }, 1500);
 });
 </script>
 </body>
