@@ -610,7 +610,7 @@ $("start").addEventListener("click", async () => {
 
     ws.onopen = () => {
       log("WebSocket 接続 OK", "ok");
-      ws.send(`s LSB16K -a-general resultUpdatedInterval=500 authorization=${key}`);
+      ws.send(`s LSB16K -a-general resultUpdatedInterval=1000 authorization=${key}`);
       log("開始コマンド送信");
     };
 
